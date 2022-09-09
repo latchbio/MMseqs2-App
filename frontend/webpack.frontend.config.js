@@ -72,14 +72,16 @@ module.exports = (env, argv) => {
                     loader: 'babel-loader',
                     include: [
                         path.resolve(__dirname),
-                        path.resolve(__dirname, '../node_modules/vuetify/src')
+                        path.resolve(__dirname, '../node_modules/vuetify/src'),
+                        path.resolve(__dirname, '../node_modules/vue-localstorage/src'),
+                        path.resolve(__dirname, '../node_modules/vue-resource'),
                     ],
                     exclude: [
                         path.resolve(__dirname, './lib/d3'),
                     ]
                 },
                 {
-                    test: /\.(png|jpe?g|gif|svg|ttf|woff2?|eot|wasm)(\?.*)?$/,
+                    test: /\.(png|jpe?g|gif|svg|ttf|woff2?|eot)(\?.*)?$/,
                     type: 'asset/resource'
                 },
                 {
@@ -123,17 +125,18 @@ module.exports = (env, argv) => {
                     use: [
                         { loader: path.resolve('./frontend/lib/po-loader.js') },
                     ]
-                }
+                },
             ]
         },
         resolve: {
             extensions: ['.js', '.vue', '.json'],
             alias: {
-                'vue$': 'vue/dist/vue.runtime.esm.js'
+                'vue$': 'vue/dist/vue.runtime.esm.js',
+                'vue-resource$': 'vue-resource/src/index.js'
             }
         },
-        experiments: {
-            asyncWebAssembly: false
+        externals: {
+            got: 'got'
         },
         plugins: [
             new webpack.DefinePlugin({
@@ -179,7 +182,7 @@ module.exports = (env, argv) => {
                 hashFuncNames: ['sha256', 'sha384']
             }),
             new CompressionPlugin({
-                test: isProduction && !isElectron ? /\.(js|html|css|svg|woff2?|map|ico|wasm)(\?.*)?$/i : undefined,
+                test: isProduction && !isElectron ? /\.(js|html|css|svg|woff2?|map|ico)(\?.*)?$/i : undefined,
                 minRatio: 1
             }),
             isProduction ? new ImageMinimizerPlugin({
@@ -201,9 +204,11 @@ module.exports = (env, argv) => {
     if (!isProduction && !isElectron) {
         exports.devServer = {
             historyApiFallback: true,
+            noInfo: true,
             proxy: {
                 '/api': {
-                    target: 'http://localhost:3000'
+                    target: 'http://localhost:3000',
+                    logLevel: 'debug'
                 }
             }
         };

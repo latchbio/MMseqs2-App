@@ -53,7 +53,6 @@
 
 <script>
 import Panel from './Panel.vue';
-import { convertToQueryUrl } from './lib/convertToQueryUrl';
 
 export default {
     props: { show: { default: false, type: Boolean} },
@@ -96,15 +95,15 @@ export default {
             }
 
             this.apiError = false;
-            // TODO: test
-            this.$axios.post("api/database", convertToQueryUrl(this.form)).then(
+            this.$http.post("api/database", this.form, { emulateJSON: true }).then(
             response => {
-                const data = response.data;
-                this.$router.push({
-                    name: "queue",
-                    params: { ticket: data.id }
-                });
-                this.close();
+               response.json().then(data => {
+                    this.$router.push({
+                        name: "queue",
+                        params: { ticket: data.id }
+                    });
+                    this.close();
+                }).catch(() => this.apiError = true);
             }).catch(() => this.apiError = true);
         },
         close() {

@@ -1,23 +1,19 @@
-version: '2.4'
+version: '2'
 
 services:
   mmseqs-web-api:
     build:
       context: ..
       dockerfile: Dockerfile.backend
-      args:
-        FRONTEND_APP: ${APP}
+      args: [ "NAMESPACE=" ]
 
   mmseqs-web-worker:
     build:
       context: ..
       dockerfile: Dockerfile.backend
-      args:
-        FRONTEND_APP: ${APP}
+      args: [ "NAMESPACE=" ]
 
   mmseqs-web-webserver:
     build:
       context: ..
       dockerfile: Dockerfile.frontend
-      args:
-        FRONTEND_APP: ${APP}

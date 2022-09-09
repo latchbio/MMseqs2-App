@@ -33,37 +33,14 @@ type AlignmentEntry struct {
 	TaxonName     string      `json:"taxName,omitempty"`
 }
 
-type FoldseekAlignmentEntry struct {
-	Query         string      `json:"query"`
-	Target        string      `json:"target"`
-	SeqId         float32     `json:"seqId"`
-	AlnLength     int         `json:"alnLength"`
-	Missmatches   int         `json:"missmatches"`
-	Gapsopened    int         `json:"gapsopened"`
-	QueryStartPos int         `json:"qStartPos"`
-	QueryEndPos   int         `json:"qEndPos"`
-	DbStartPos    int         `json:"dbStartPos"`
-	DbEndPos      int         `json:"dbEndPos"`
-	Eval          float64     `json:"eval"`
-	Score         int         `json:"score"`
-	QueryLength   int         `json:"qLen"`
-	DbLength      int         `json:"dbLen"`
-	QueryAln      string      `json:"qAln"`
-	DbAln         string      `json:"dbAln"`
-	TargetCa      string      `json:"tCa"`
-	TargetSeq     string      `json:"tSeq"`
-	TaxonId       json.Number `json:"taxId,omitempty"`
-	TaxonName     string      `json:"taxName,omitempty"`
-}
-
 type FastaEntry struct {
 	Header   string `json:"header"`
 	Sequence string `json:"sequence"`
 }
 
 type SearchResult struct {
-	Database   string      `json:"db"`
-	Alignments interface{} `json:"alignments"`
+	Database   string           `json:"db"`
+	Alignments []AlignmentEntry `json:"alignments"`
 }
 
 type AlignmentResponse struct {
@@ -82,14 +59,11 @@ func Alignments(id Id, entry int64, jobsbase string) (AlignmentResponse, error) 
 		return AlignmentResponse{}, err
 	}
 
-	reader := Reader[uint32]{}
-	res := make([]SearchResult, 0)
+	reader := Reader{}
+	var res []SearchResult
 	for _, item := range matches {
 		name := strings.TrimSuffix(item, ".index")
-		err := reader.Make(dbpaths(name))
-		if err != nil {
-			return AlignmentResponse{}, err
-		}
+		reader.Make(dbpaths(name))
 		data := strings.NewReader(reader.Data(entry))
 		reader.Delete()
 		var results []AlignmentEntry
@@ -111,70 +85,11 @@ func Alignments(id Id, entry int64, jobsbase string) (AlignmentResponse, error) 
 	}
 
 	query := filepath.Join(base, "tmp", "latest", "query")
-	err = reader.Make(dbpaths(query))
-	if err != nil {
-		return AlignmentResponse{}, err
-	}
+	reader.Make(dbpaths(query))
 	sequence := strings.TrimSpace(reader.Data(entry))
 	reader.Delete()
 
-	err = reader.Make(dbpaths(query + "_h"))
-	if err != nil {
-		return AlignmentResponse{}, err
-	}
-	header := strings.TrimSpace(reader.Data(entry))
-	reader.Delete()
-
-	return AlignmentResponse{FastaEntry{header, sequence}, res}, nil
-}
-
-func FSAlignments(id Id, entry int64, jobsbase string) (AlignmentResponse, error) {
-	base := filepath.Join(jobsbase, string(id))
-	matches, err := filepath.Glob(filepath.Join(filepath.Clean(base), "alis_*.index"))
-	if err != nil {
-		return AlignmentResponse{}, err
-	}
-
-	reader := Reader[uint32]{}
-	res := make([]SearchResult, 0)
-	for _, item := range matches {
-		name := strings.TrimSuffix(item, ".index")
-		err = reader.Make(dbpaths(name))
-		if err != nil {
-			return AlignmentResponse{}, err
-		}
-		data := strings.NewReader(reader.Data(entry))
-		reader.Delete()
-		var results []FoldseekAlignmentEntry
-		r := FoldseekAlignmentEntry{}
-		parser := NewTsvParser(data, &r)
-		for {
-			eof, err := parser.Next()
-			if eof {
-				break
-			}
-			if err != nil {
-				return AlignmentResponse{}, err
-			}
-			results = append(results, r)
-		}
-
-		base := filepath.Base(name)
-		res = append(res, SearchResult{strings.TrimPrefix(base, "alis_"), results})
-	}
-
-	query := filepath.Join(base, "tmp", "latest", "query")
-	err = reader.Make(dbpaths(query))
-	if err != nil {
-		return AlignmentResponse{}, err
-	}
-	sequence := strings.TrimSpace(reader.Data(entry))
-	reader.Delete()
-
-	err = reader.Make(dbpaths(query + "_h"))
-	if err != nil {
-		return AlignmentResponse{}, err
-	}
+	reader.Make(dbpaths(query + "_h"))
 	header := strings.TrimSpace(reader.Data(entry))
 	reader.Delete()
 
@@ -232,7 +147,7 @@ func ResultArchive(w io.Writer, id Id, base string) (err error) {
 		return err
 	}
 
-	reader := Reader[uint32]{}
+	reader := Reader{}
 	for _, item := range matches {
 		name := strings.TrimSuffix(item, ".index")
 
@@ -240,10 +155,7 @@ func ResultArchive(w io.Writer, id Id, base string) (err error) {
 		if err != nil {
 			return err
 		}
-		err = reader.Make(dbpaths(name))
-		if err != nil {
-			return err
-		}
+		reader.Make(dbpaths(name))
 		for i := int64(0); i < reader.Size(); i++ {
 			data := strings.NewReader(reader.Data(i))
 			scanner := bufio.NewScanner(data)

@@ -1,8 +1,8 @@
 import Vue from 'vue';
 import VueRouter from 'vue-router';
+import VueResource from 'vue-resource';
+import VueLocalStorage from 'vue-localstorage/src/index.js';
 import Vuetify from 'vuetify/lib';
-import { create } from 'axios';
-
 import {
     mdiHistory,
     mdiChevronLeft,
@@ -22,15 +22,11 @@ import {
     mdiLabelOutline,
     mdiNotificationClearAll,
     mdiProgressWrench,
-    mdiRestore,
-    mdiFullscreen,
-    mdiArrowRightCircle,
-    mdiArrowRightCircleOutline,
-    mdiCircle,
-    mdiCircleHalf,
 } from '@mdi/js'
 
 Vue.use(VueRouter);
+Vue.use(VueResource);
+Vue.use(VueLocalStorage);
 Vue.use(Vuetify);
 
 import App from './App.vue';
@@ -99,12 +95,6 @@ Vue.use({
             LabelOutline: mdiLabelOutline,
             NotificationClearAll: mdiNotificationClearAll,
             ProgressWrench: mdiProgressWrench,
-            Restore: mdiRestore,
-            Fullscreen: mdiFullscreen,
-            ArrowRightCircle: mdiArrowRightCircle,
-            ArrowRightCircleOutline: mdiArrowRightCircleOutline,
-            Circle: mdiCircle,
-            CircleHalf: mdiCircleHalf,
         };
         if (__ELECTRON__) {
             const remote = require('@electron/remote');
@@ -119,27 +109,20 @@ Vue.use({
             Vue.prototype.saveResult = () => {};
             Vue.prototype.handleTitleBarDoubleClick = () => {};
         }
-
-        let apiBase = "";
-        let defaultHeaders = {};
-        if (__ELECTRON__) {
-            const remote = require('@electron/remote');
-            apiBase = remote.app.apiEndpoint;
-            if (remote.app.token && remote.app.token.length > 0) {
-                defaultHeaders.Authorization = `Basic ${remote.app.token}`;
-            }
-        } else {
-            apiBase = __CONFIG__.apiEndpoint;
-        }
-        
-        const axiosConfig = {
-            baseURL: apiBase,
-            headers: defaultHeaders
-        };
-
-        Vue.prototype.$axios = create(axiosConfig);
     }
 });
+
+if (__ELECTRON__) {
+    const remote = require('@electron/remote');
+    Vue.url.options.root = remote.app.apiEndpoint;
+    if (remote.app.token && remote.app.token.length > 0) {
+        Vue.http.interceptors.push(function (request) {
+            request.headers.set('Authorization', `Basic ${remote.app.token}`);
+        });
+    }
+} else {
+    Vue.url.options.root = __CONFIG__.apiEndpoint;
+}
 
 const app = new Vue({
     el: '#app',

@@ -5,26 +5,21 @@ import (
 	"encoding/base64"
 	"errors"
 	"io/ioutil"
-	"regexp"
 	"sort"
 	"strings"
 )
 
 type SearchJob struct {
-	Size      int      `json:"size" validate:"required"`
-	Database  []string `json:"database" validate:"required"`
-	Mode      string   `json:"mode" validate:"required"`
-	TaxFilter string   `json:"taxfilter"`
-	query     string
+	Size     int      `json:"size" validate:"required"`
+	Database []string `json:"database" validate:"required"`
+	Mode     string   `json:"mode" validate:"required"`
+	query    string
 }
 
 func (r SearchJob) Hash() Id {
 	h := sha256.New224()
 	h.Write([]byte(r.query))
 	h.Write([]byte(r.Mode))
-	if r.TaxFilter != "" {
-		h.Write([]byte(r.TaxFilter))
-	}
 
 	sort.Strings(r.Database)
 
@@ -65,14 +60,11 @@ func isIn(num string, params []string) int {
 	return -1
 }
 
-var validTaxonFilter = regexp.MustCompile(`^[0-9]+(,!?[0-9]+)*$|^$`).MatchString
-
-func NewSearchJobRequest(query string, dbs []string, validDbs []Params, mode string, resultPath string, email string, taxfilter string) (JobRequest, error) {
+func NewSearchJobRequest(query string, dbs []string, validDbs []Params, mode string, resultPath string, email string) (JobRequest, error) {
 	job := SearchJob{
 		max(strings.Count(query, ">"), 1),
 		dbs,
 		mode,
-		taxfilter,
 		query,
 	}
 
@@ -94,10 +86,6 @@ func NewSearchJobRequest(query string, dbs []string, validDbs []Params, mode str
 		if idx == -1 {
 			return request, errors.New("Selected databases are not valid!")
 		}
-	}
-
-	if !validTaxonFilter(taxfilter) {
-		return request, errors.New("invalid taxon filter")
 	}
 
 	return request, nil

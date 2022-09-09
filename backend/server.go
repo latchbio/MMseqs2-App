@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NYTimes/gziphandler"
 	"github.com/didip/tollbooth/v6"
 	"github.com/didip/tollbooth/v6/limiter"
 	"github.com/goji/httpauth"
@@ -57,8 +56,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 	} else {
 		r = baseRouter
 	}
-
-	r.Use(Decompress)
 
 	databasesHandler := func(complete bool) func(http.ResponseWriter, *http.Request) {
 		return func(w http.ResponseWriter, req *http.Request) {
@@ -208,29 +205,16 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 		}).Methods("POST")
 
 		r.HandleFunc("/database", func(w http.ResponseWriter, req *http.Request) {
-			var path string
-			if strings.HasPrefix(req.Header.Get("Content-Type"), "application/json") {
-				type DatabaseRequest struct {
-					Path string `json:"path"`
-				}
-				var body DatabaseRequest
-				if err := DecodeJsonAndValidate(req.Body, &body); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				path = body.Path
-			} else {
-				err := req.ParseForm()
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-
-				path = req.FormValue("path")
+			err := req.ParseForm()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
 			}
+
+			path := req.FormValue("path")
 			ok := DeleteDatabase(filepath.Join(config.Paths.Databases, filepath.Base(path)))
 			if ok == false {
-				http.Error(w, "Delete request failed", http.StatusBadRequest)
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}).Methods("DELETE")
@@ -241,7 +225,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 		var dbs []string
 		var mode string
 		var email string
-		var taxfilter string
 
 		if strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data") {
 			err := req.ParseMultipartForm(int64(128 * 1024 * 1024))
@@ -262,7 +245,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			dbs = req.Form["database[]"]
 			mode = req.FormValue("mode")
 			email = req.FormValue("email")
-			taxfilter = req.FormValue("taxfilter")
 		} else {
 			err := req.ParseForm()
 			if err != nil {
@@ -273,7 +255,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			dbs = req.Form["database[]"]
 			mode = req.FormValue("mode")
 			email = req.FormValue("email")
-			taxfilter = req.FormValue("taxfilter")
 		}
 
 		databases, err := Databases(config.Paths.Databases, true)
@@ -284,9 +265,9 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 
 		var request JobRequest
 		if config.App == AppMMseqs2 {
-			request, err = NewSearchJobRequest(query, dbs, databases, mode, config.Paths.Results, email, taxfilter)
+			request, err = NewSearchJobRequest(query, dbs, databases, mode, config.Paths.Results, email)
 		} else if config.App == AppFoldSeek {
-			request, err = NewStructureSearchJobRequest(query, dbs, databases, mode, config.Paths.Results, email, taxfilter)
+			request, err = NewStructureSearchJobRequest(query, dbs, databases, mode, config.Paths.Results, email)
 		} else {
 			http.Error(w, "Job type not supported by this server", http.StatusBadRequest)
 			return
@@ -479,7 +460,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			JobType JobType `json:"type"`
 		}
 
-		w.Header().Set("Cache-Control", "public, max-age=3600")
 		err = json.NewEncoder(w).Encode(TypeReponse{request.Type})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -494,7 +474,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			return
 		}
 
-		w.Header().Set("Cache-Control", "no-cache, no-store")
 		err = json.NewEncoder(w).Encode(ticket)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -551,39 +530,10 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
 		io.Copy(w, bufio.NewReader(file))
 	}).Methods("GET")
 
-	queryHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		vars := mux.Vars(req)
-		ticket, err := jobsystem.GetTicket(Id(vars["ticket"]))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		var suffix string
-		switch config.App {
-		case "foldseek":
-			suffix = ".pdb"
-		default:
-			suffix = ".fasta"
-		}
-		query, err := os.ReadFile(filepath.Join(config.Paths.Results, string(ticket.Id), "job"+suffix))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		type QueryResponse struct {
-			Query string `json:"query"`
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write(query)
-	})
-	r.Handle("/result/{ticket}/query", gziphandler.GzipHandler(queryHandler)).Methods("GET")
-
-	resultHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	r.HandleFunc("/result/{ticket}/{entry}", func(w http.ResponseWriter, req *http.Request) {
 		vars := mux.Vars(req)
 		id, err := strconv.ParseUint(vars["entry"], 10, 64)
 		if err != nil {
@@ -603,13 +553,7 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			return
 		}
 
-		var results AlignmentResponse
-		switch config.App {
-		case "foldseek":
-			results, err = FSAlignments(ticket.Id, int64(id), config.Paths.Results)
-		default:
-			results, err = Alignments(ticket.Id, int64(id), config.Paths.Results)
-		}
+		results, err := Alignments(ticket.Id, int64(id), config.Paths.Results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -640,15 +584,13 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			Results []SearchResult `json:"results"`
 		}
 
-		w.Header().Set("Cache-Control", "public, max-age=3600")
 		err = json.NewEncoder(w).Encode(AlignmentModeResponse{results.Query, mode, results.Results})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-	})
-	r.Handle("/result/{ticket}/{entry}", gziphandler.GzipHandler(resultHandler)).Methods("GET")
+	}).Methods("GET")
 
 	r.HandleFunc("/result/queries/{ticket}/{limit}/{page}", func(w http.ResponseWriter, req *http.Request) {
 		vars := mux.Vars(req)
@@ -670,37 +612,13 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			return
 		}
 
-		w.Header().Set("Cache-Control", "public, max-age=3600")
 		result, err := Lookup(ticket.Id, page, limit, config.Paths.Results)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
 		err = json.NewEncoder(w).Encode(result)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}).Methods("GET")
-
-	if config.App == AppColabFold {
-		a3mreader := Reader[string]{}
-		base := config.Paths.ColabFold.Pdb70 + "_a3m"
-		err := a3mreader.Make(base+".ffdata", base+".ffindex")
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		r.HandleFunc("/template/{list}", func(w http.ResponseWriter, req *http.Request) {
-			templates := strings.Split(mux.Vars(req)["list"], ",")
-			w.Header().Set("Content-Disposition", "attachment; filename=\"templates.tar.gz\"")
-			w.Header().Set("Content-Type", "application/octet-stream")
-			if err := GatherTemplates(w, templates, a3mreader, config.Paths.ColabFold.PdbDivided, config.Paths.ColabFold.PdbObsolete); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}).Methods("GET")
-	}
 
 	r.HandleFunc("/queue", func(w http.ResponseWriter, req *http.Request) {
 		type QueueResponse struct {
@@ -711,8 +629,6 @@ func server(jobsystem JobSystem, config ConfigRoot) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		w.Header().Set("Cache-Control", "no-cache, no-store")
 		err = json.NewEncoder(w).Encode(QueueResponse{length})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

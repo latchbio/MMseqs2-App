@@ -20,7 +20,7 @@ type Params struct {
 	Path     string `json:"path" validate:"required"`
 	Default  bool   `json:"default"`
 	Order    int    `json:"order"`
-	Taxonomy bool   `json:"taxonomy"`
+	Taxonomy bool   `json:"taxonomy`
 	Index    string `json:"index"`
 	Search   string `json:"search"`
 	Status   Status `json:"status"`
@@ -225,7 +225,7 @@ func Databases(basepath string, complete bool) ([]Params, error) {
 		return nil, err
 	}
 
-	res := make([]Params, 0)
+	var res []Params
 	for _, value := range matches {
 		params, err := ReadParams(value)
 		if err != nil {

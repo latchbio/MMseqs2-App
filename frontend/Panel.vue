@@ -1,5 +1,5 @@
 <template>
-    <div :class="['panel-root', elevation != null ? 'elevation-' + elevation : null ]">
+    <div class="panel-root">
         <v-toolbar v-if="!!$slots['header'] || !!header" text dense dark>
             <span class="text-h6 align-end">
                 <slot v-if="$slots['header']" name="header"></slot>
@@ -22,12 +22,7 @@
 <script>
 export default {
     name: 'panel',
-    props: { 
-        header : { default: '', type: String }, 
-        'fillHeight' : { default: false, type: Boolean }, 
-        'flex' : { default: true, type: Boolean },
-        'elevation' : { default: null, type: Number }
-    },
+    props: { header : { default: '', type: String }, 'fillHeight' : { default: false, type: Boolean }, 'flex' : { default: true, type: Boolean }},
 }
 </script>
 

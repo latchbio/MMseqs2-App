@@ -6,15 +6,11 @@
         "dbmanagment": false,
         "cors"       : true
     },
-    "worker": {
-        "gracefulexit" : true
-    },
     "paths" : {
         "databases"    : "/opt/mmseqs-web/databases",
         "results"      : "/opt/mmseqs-web/jobs",
         "temporary"    : "/tmp",
-        "mmseqs"       : "/usr/local/bin/mmseqs",
-        "foldseek"     : "/usr/local/bin/foldseek"
+        "mmseqs"       : "/usr/local/bin/mmseqs"
     },
     "redis" : {
         "network"  : "tcp",

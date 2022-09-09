@@ -34,31 +34,12 @@ var defaultFileContent = []byte(`{
         // should CORS headers be set to allow requests from anywhere
         "cors"       : true
     },
-	"worker": {
-		// should workers exit immediately after SIGINT/SIGTERM signal or gracefully wait for job completion
-		"gracefulexit": false
-	},
     // paths to workfolders and mmseqs, special character ~ is resolved relative to the binary location
     "paths" : {
         // path to mmseqs databases, has to be shared between server/workers
         "databases"    : "~databases",
         // path to job results and scratch directory, has to be shared between server/workers
         "results"      : "~jobs",
-        /*
-        // paths to colabfold templates
-        "colabfold"    : {
-            // paths for search databases
-            "uniref"        : "~databases/uniref30_2103",
-            "pdb",          : "~databases/pdb70",
-            "environmental" : "~databases/colabfold_envdb_202108",
-            // paths for templates
-            "pdb70"         : "~databases/pdb70"
-            "pdbdivided"    : "~databases/pdbdivided",
-            "pdbobsolete"   : "~databases/pdbobsolete",
-        },
-        */
-        // path to foldseek binary
-        "foldseek"     : "~foldseek",
         // path to mmseqs binary
         "mmseqs"       : "~mmseqs"
     },
@@ -132,22 +113,12 @@ var defaultFileContent = []byte(`{
 }
 `)
 
-type ConfigColabFoldPaths struct {
-	Uniref        string `json:"uniref"`
-	Pdb           string `json:"pdb"`
-	Environmental string `json:"environmental"`
-	Pdb70         string `json:"pdb70"`
-	PdbDivided    string `json:"pdbdivided"`
-	PdbObsolete   string `json:"pdbobsolete"`
-}
-
 type ConfigPaths struct {
-	Databases string                `json:"databases"`
-	Results   string                `json:"results"`
-	Temporary string                `json:"temporary"`
-	Mmseqs    string                `json:"mmseqs"`
-	FoldSeek  string                `json:"foldseek"`
-	ColabFold *ConfigColabFoldPaths `json:"colabfold"`
+	Databases string `json:"databases"`
+	Results   string `json:"results"`
+	Temporary string `json:"temporary"`
+	Mmseqs    string `json:"mmseqs"`
+	FoldSeek  string `json:"foldseek`
 }
 
 type ConfigRedis struct {
@@ -190,10 +161,6 @@ type ConfigRateLimit struct {
 	Reason string  `json:"reason"`
 }
 
-type ConfigWorker struct {
-	GracefulExit bool `json:"gracefulexit"`
-}
-
 type ConfigServer struct {
 	Address     string           `json:"address" validate:"required"`
 	PathPrefix  string           `json:"pathprefix"`
@@ -213,9 +180,8 @@ const (
 )
 
 type ConfigRoot struct {
-	App     ConfigApp    `json:"app" validate:"oneof=mmseqs foldseek colabfold predictprotein"`
+	App     ConfigApp    `json:"app" validate:"oneof=mmseqs foldseek colabfold colabfold"`
 	Server  ConfigServer `json:"server" validate:"required"`
-	Worker  ConfigWorker `json:"worker"`
 	Paths   ConfigPaths  `json:"paths" validate:"required"`
 	Redis   ConfigRedis  `json:"redis"`
 	Local   ConfigLocal  `json:"local"`

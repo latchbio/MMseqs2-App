@@ -72,7 +72,7 @@
                                         <template v-slot:activator="{ on }">
                                             <v-icon v-on="on" style="font-size: 16px; float: right;">{{ $MDI.HelpCircleOutline }}</v-icon>
                                         </template>
-                                        <span>Triple click to select whole cell (for very long identifiers)</span>
+                                        <span>Tripple click to select whole cell (for very long identifiers)</span>
                                     </v-tooltip>
                                 </th>
                                 <th v-if="taxonomy"  class="wide-1">Scientific Name</th>
@@ -106,13 +106,20 @@
                         </tbody>
                     </table>
                 </panel>
-
-                <panel v-if="alignment != null" class="alignment" :style="'top: ' + alnBoxOffset + 'px'">
-                    <AlignmentPanel
-                        slot="content"
-                        :alignment="alignment"
-                        :lineLen="lineLen"
-                    />
+                <panel v-if="alignment != null" class="alignment monospace" :style="'top: ' + alnBoxOffset + 'px'">
+                    <div class="alignment-wrapper1" slot="content">
+                        <div class="alignment-wrapper2">
+                        <span v-for="i in Math.max(1, Math.ceil(alignment.alnLength / lineLen))" :key="i">
+<span class="line">
+Q&nbsp;{{padNumber(alignment.qStartPos + (i-1)*lineLen, (Math.max(alignment.qStartPos, alignment.dbStartPos) + alignment.alnLength+"").length, '&nbsp;')}}&nbsp;<span class="residues">{{alignment.qAln.substring((i-1)*lineLen,  (i-1)*lineLen+lineLen)}}</span>
+<br>
+{{'&nbsp;'.repeat(3+(Math.max(alignment.qStartPos, alignment.dbStartPos) + alignment.alnLength+"").length)}}<span class="residues">{{formatAlnDiff(alignment.qAln.substring((i-1)*lineLen,  (i-1)*lineLen+lineLen), alignment.dbAln.substring((i-1)*lineLen, (i-1)*lineLen+lineLen))}}</span>
+<br>
+T&nbsp;{{padNumber(alignment.dbStartPos + (i-1)*lineLen, (Math.max(alignment.qStartPos, alignment.dbStartPos) + alignment.alnLength+"").length, '&nbsp;')}}&nbsp;<span class="residues">{{alignment.dbAln.substring((i-1)*lineLen, (i-1)*lineLen+lineLen)}}</span>
+</span><br>
+                        </span>
+                        </div>
+                    </div>
                 </panel>
             </v-flex>
         </v-layout>
@@ -122,13 +129,11 @@
 <script>
 
 import Panel from './Panel.vue';
-import AlignmentPanel from './AlignmentPanel.vue';
 
 require('./lib/d3/d3');
 
 import feature from './lib/feature-viewer/feature-viewer.js';
 import colorScale from './lib/ColorScale';
-import { debounce } from './lib/debounce';
 
 function lerp(v0, v1, t) {
     return v0*(1-t)+v1*t
@@ -154,6 +159,9 @@ function mapPosToSeq(seq, targetPos) {
     return counter;
 }
 
+// cat blosum62.out  | grep -v '^#' | awk 'NR == 1 { for (i = 1; i <= NF; i++) { r[i] = $i; } next; } { col = $1; for (i = 2; i <= NF; i++) { print col,r[i-1],$i; } }' | awk '$3 > 0 && $1 != $2 { printf "\""$1""$2"\",";}'
+const blosum62Sim = [ "AG","AS","DE","DN","ED","EK","EQ","FL","FM","FW","FY","GA","HN","HQ","HY","IL","IM","IV","KE","KQ","KR","LF","LI","LM","LV","MF","MI","ML","MV","ND","NH","NQ","NS","QE","QH","QK","QN","QR","RK","RQ","SA","SN","ST","TS","VI","VL","VM","WF","WY","YF","YH","YW"];
+
 var m = null;
 
 function getAbsOffsetTop($el) {
@@ -167,7 +175,7 @@ function getAbsOffsetTop($el) {
 
 export default {
     name: 'result',
-    components: { Panel, AlignmentPanel },
+    components: { Panel },
     data() {
         return {
             ticket: "",
@@ -176,18 +184,15 @@ export default {
             entry: 0,
             hits: null,
             alignment: null,
-            activeTarget: null,
             taxonomy: false,
             alnBoxOffset: 0,
             lineLen: 80,
         };
     },
     created() {
-        window.addEventListener("resize", this.handleAlignmentBoxResize, { passive: true });
         this.$root.$on('navigation-resize', this.updateWindow);
     },
     beforeDestroy() {
-        window.removeEventListener("resize", this.handleAlignmentBoxResize);
         this.$root.$off('navigation-resize', this.updateWindow);
         this.remove();
     },
@@ -239,23 +244,36 @@ export default {
                 m.updateWindowDebounced();
             }
         },
+        padNumber(nr, n, str){
+            return Array(n-String(nr).length+1).join(str||'0')+nr;
+        },
+        formatAlnDiff(seq1, seq2) {
+            if (seq1.length != seq2.length) {
+                return "";
+            }
+
+            var res = ""
+            for (var i = 0; i < seq1.length; i++) {
+                if (seq1[i] == seq2[i]) {
+                    res += seq1[i];
+                } else if (blosum62Sim.indexOf(seq1[i] + seq2[i]) != -1) {
+                    res += '+';
+                } else {
+                    res += ' ';
+                }
+            }
+            return res;
+        },
         showAlignment(item, event) {
             if (this.alignment == item) {
                 this.alignment = null;
-                this.activeTarget = null;
             } else {
                 this.alignment = item;
-                this.activeTarget = event.target.closest('.hit');
-                const topBar = parseInt(document.querySelector('main.v-main').style.paddingTop || 48, 10);
-                this.alnBoxOffset = getAbsOffsetTop(this.activeTarget) + this.activeTarget.offsetHeight - topBar;
             }
+            var $el = event.target.closest('.hit');
+            // FIXME: dont hardcode navigation bar height (48px)
+            this.alnBoxOffset = getAbsOffsetTop($el) + $el.offsetHeight - 48;
         },
-        handleAlignmentBoxResize: debounce(function() {
-            if (this.activeTarget != null) {
-                const topBar = parseInt(document.querySelector('main.v-main').style.paddingTop || 48, 10);
-                this.alnBoxOffset = getAbsOffsetTop(this.activeTarget) + this.activeTarget.offsetHeight - topBar;
-            }
-        }, 32, false),
         tryLinkTargetToDB(target, db) {
             var res = db.toLowerCase();
             if (res.startsWith("pfam")) {
@@ -270,12 +288,8 @@ export default {
                 return 'https://www.ncbi.nlm.nih.gov/Structure/cdd/cddsrv.cgi?uid=' + target;
             }
 
-            if (__APP__ == "foldseek") {
-                if (target.startsWith("AF-")) {
-                    return 'https://www.alphafold.ebi.ac.uk/entry/' + target.replaceAll(/-F[0-9]+-model_v[0-9]+\.(cif|pdb)(\.gz)?(_[A-Z0-9]+)?$/g, '');
-                } else if (target.startsWith("GMGC")) {
-                    return 'https://gmgc.embl.de/search.cgi?search_id=' + target.replaceAll(/\.(cif|pdb)(\.gz)?/g, '')
-                }
+            if (__APP__ == "foldseek" && target.startsWith("AF-")) {
+                return 'https://www.alphafold.ebi.ac.uk/entry/' + target.replaceAll(/-F1-model_v[0-9]+\.(cif|pdb)(\.gz)?(_[A-Z0-9]+)?$/g, '');
             }
 
             return null;
@@ -285,7 +299,7 @@ export default {
             if (__APP__ == "foldseek") {
                 if (target.startsWith("AF-")) {
                     return target.replaceAll(/\.(cif|pdb)(\.gz)?(_[A-Z0-9]+)?$/g, '');
-                } else if (res.startsWith("pdb") || res.startsWith("GMGC")) {
+                } else if (res.startsWith("pdb")) {
                     return target.replaceAll(/\.(cif|pdb)(\.gz)?/g, '');
                 }
             }
@@ -297,47 +311,48 @@ export default {
             this.entry = this.$route.params.entry;
             this.alignment = null;
             this.taxonomy = false;
-            this.$axios.get("api/result/" + this.ticket + '/' + this.entry)
+            this.$http.get("api/result/" + this.ticket + '/' + this.entry)
                 .then((response) => {
                     this.error = "";
-                    const data = response.data;
-                    if ("mode" in data) {
-                        this.mode = data.mode;
-                    }
-                    if (data.alignments == null || data.alignments.length > 0) {
-                        var color = colorScale();
-                        var empty = 0;
-                        var total = 0;
-                        for (var i in data.results) {
-                            var db = data.results[i].db;
-                            data.results[i].color = color(db); 
-                            if (data.results[i].alignments == null) {
-                                empty++;
-                            }
-                            total++;
-                            for (var j in data.results[i].alignments) {
-                                var item = data.results[i].alignments[j];
-                                item.href = this.tryLinkTargetToDB(item.target, db);
-                                item.target = this.tryFixTargetName(item.target, db);
-                                item.id = 'result-' + i + '-' + j;
-                                item.active = false;
-                                if (__APP__ != "foldseek" || this.mode != "tmalign") {
-                                    item.eval = item.eval.toExponential(3);
-                                }
-                                if ("taxId" in item) {
-                                    this.taxonomy = true;
-                                }
-                            }
+                    response.json().then((data) => {
+                        if ("mode" in data) {
+                            this.mode = data.mode;
                         }
-                        if (total != 0 && empty/total == 1) {
-                            this.hits = { results: [] };
+                        if (data.alignments == null || data.alignments.length > 0) {
+                            var color = colorScale();
+                            var empty = 0;
+                            var total = 0;
+                            for (var i in data.results) {
+                                var db = data.results[i].db;
+                                data.results[i].color = color(db); 
+                                if (data.results[i].alignments == null) {
+                                    empty++;
+                                }
+                                total++;
+                                for (var j in data.results[i].alignments) {
+                                    var item = data.results[i].alignments[j];
+                                    item.href = this.tryLinkTargetToDB(item.target, db);
+                                    item.target = this.tryFixTargetName(item.target, db);
+                                    item.id = 'result-' + i + '-' + j;
+                                    item.active = false;
+                                    if (__APP__ != "foldseek" || this.mode != "tmalign") {
+                                        item.eval = item.eval.toExponential(3);
+                                    }
+                                    if ("taxId" in item) {
+                                        this.taxonomy = true;
+                                    }
+                                }
+                            }
+                            if (total != 0 && empty/total == 1) {
+                                this.hits = { results: [] };
+                            } else {
+                                this.hits = data;
+                            }
                         } else {
-                            this.hits = data;
+                            this.error = "Failed";
+                            this.hits = [];
                         }
-                    } else {
-                        this.error = "Failed";
-                        this.hits = [];
-                    }
+                    });
                 }, () => {
                     this.error = "Failed";
                     this.hits = [];
@@ -660,18 +675,21 @@ small.ticket {
         white-space: pre;
     }
 
-    /* .alignment-wrapper-outer { */
-    /*     display: inline-flex; */
-    /*     flex-direction: row; */
-    /*     flex-wrap: wrap; */
-    /*     justify-content: center; */
-    /*     align-items: center; */
-    /* } */
+    .alignment-wrapper1 {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
 
-    /* .structure-wrapper1 { */
-    /*     position: relative; */
-    /*     flex: 1 1 auto; */
-    /* } */
+    .alignment-wrapper2 {
+        display:inline-block;
+        overflow-x:scroll;
+        .line {
+            display: inline-block;
+            margin-bottom: 0.5em;
+            white-space: nowrap;
+        }
+    }
 
     .theme--dark & {
         .residues {

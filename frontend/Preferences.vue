@@ -95,8 +95,6 @@ import Panel from './Panel.vue';
 import NewDatabase from './NewDatabase.vue'
 import Draggable from 'vuedraggable';
 
-import { convertToQueryUrl } from './lib/convertToQueryUrl';
-
 export default {
     components: { Panel, Draggable, NewDatabase },
     data() {
@@ -116,28 +114,35 @@ export default {
     methods: {
         fetchData() {
             this.error = false;
-            this.$axios.get("api/databases").then(
+            this.$http.get("api/databases").then(
                 response => {
-                    const data = response.data;
-                    this.databases = data.databases;
-                    this.error = false;
+                    response.json().then(data => {
+                        this.databases = data.databases;
+                        this.error = false;
+                    }).catch(this.apiError);
                 }).catch(this.apiError);
         },
         saveOrder() {
             this.inReorder = false;
             const database = this.databases.map(x => { return x.path; });
-            this.$axios.post("api/databases/order", convertToQueryUrl({ database })).then(
+            this.$http.post("api/databases/order", { database }, { emulateJSON: true }).then(
                 response => {
-                    const data = response.data;
-                    this.databases = data.databases;
-                    this.error = false;
+                    response.json().then(data => {
+                        this.databases = data.databases;
+                        this.error = false;
+                    }).catch(this.apiError);
                 }).catch(this.apiError);
         },
         deleteDatabase(path) {
             if (confirm("Are you sure?") == true) {
-                this.$axios.delete("api/database", { data: { path } })
-                    .then(() => {this.fetchData(); })
-                    .catch(this.apiError);
+                this.$http.delete("api/database", { params: { path: path }, emulateJSON: true }).then(
+                response => {
+                    if (response.status != 200) {
+                        this.apiError();
+                    } else {
+                        this.fetchData();
+                    }
+                }).catch(this.apiError);
             }
         },
         apiError() {

@@ -51,8 +51,6 @@
                             </v-card>
                         </v-dialog>
 
-                        <load-acession-button v-if="$APP == 'foldseek'" v-on:select="query = $event"></load-acession-button>
-
                         <file-button id="file" :label="$STRINGS.UPLOAD_LABEL" v-on:upload="upload"></file-button>
                         </div>
                     </template>
@@ -66,7 +64,7 @@
                                 <template v-slot:activator="{ on }">
                                     <label v-on="on">Databases&nbsp;<v-icon color="#FFFFFFB3" style="margin-top:-3px" small v-on="on">{{ $MDI.HelpCircleOutline }}</v-icon></label>
                                 </template>
-                                <span v-if="$ELECTRON || hideEmail">Choose the databases to search against and the result mode.</span>
+                                <span v-if="$ELECTRON">Choose the databases to search against and the result mode.</span>
                                 <span v-else>Choose the databases to search against, the result mode, and optionally an email to notify you when the job is done.</span>
                             </v-tooltip>
                         </div>
@@ -103,20 +101,14 @@
                                      ></v-radio>
                         </v-radio-group>
 
-                        <TaxonomyAutocomplete v-model="taxFilter"></TaxonomyAutocomplete>
-
-                        <v-tooltip v-if="!$ELECTRON && !hideEmail" open-delay="300" top>
+                        <v-tooltip v-if="!$ELECTRON" open-delay="300" top>
                             <template v-slot:activator="{ on }">
-                                <v-text-field v-on="on" label="Notification Email (Optional)" placeholder="you@example.org" v-model="email"></v-text-field>
+                                <v-text-field v-on="on" id="email" label="Notification Email (Optional)" placeholder="you@example.org" v-model="email"></v-text-field>
                             </template>
                             <span>Send an email when the job is done.</span>
                         </v-tooltip>
 
                         <v-btn color="primary" block large v-on:click="search" :disabled="searchDisabled"><v-icon>{{ $MDI.Magnify }}</v-icon>Search</v-btn>
-
-                        <div v-if="errorMessage != ''" class="v-alert red mt-2">
-                            <span>{{ errorMessage }}</span>
-                        </div>
                     </div>
                 </panel>
             </v-flex>
@@ -139,58 +131,82 @@
 <script>
 import Panel from "./Panel.vue";
 import FileButton from "./FileButton.vue";
-import LoadAcessionButton from './LoadAcessionButton.vue';
-import { gzip } from 'pako';
-import { convertToQueryUrl } from './lib/convertToQueryUrl';
-import TaxonomyAutocomplete from './TaxonomyAutocomplete.vue';
-
-let localStorageEnabled = false;
-try {
-    if (typeof window.localStorage !== 'undefined') {
-        localStorageEnabled = true
-    }
-} catch(e) {}
 
 export default {
     name: "search",
-    components: { Panel, FileButton, LoadAcessionButton, TaxonomyAutocomplete },
+    components: { Panel, FileButton },
     data() {
         return {
             dberror: false,
             dbqueried: false,
             databases: [],
             inSearch: false,
-            errorMessage: "",
+            status: {
+                type: "",
+                message: ""
+            },
             showCurl: false,
-            mode: this.$STRINGS.MODE_DEFAULT_KEY,
-            email: "",
-            hideEmail: true,
-            query: this.$STRINGS.QUERY_DEFAULT,
-            database: [],
-            taxFilter: null
+            mode_: null,
+            email_: null,
+            query_: null,
+            database_: null
         };
     },
-    mounted() {
-        if (localStorageEnabled && localStorage.mode) {
-            this.mode = localStorage.mode;
-        }
-        if (localStorageEnabled && localStorage.email) {
-            this.email = localStorage.email;
-        }
-        if (localStorageEnabled && localStorage.query) {
-            this.query = localStorage.query;
-        }
-        if (localStorageEnabled && localStorage.database) {
-            this.database = JSON.parse(localStorage.database);
-        }
-        if (localStorageEnabled && localStorage.databases) {
-            this.databases = JSON.parse(localStorage.databases);
-        }
-        if (localStorageEnabled && localStorage.taxFilter) {
-            this.taxFilter = JSON.parse(localStorage.taxFilter);
-        }
-    },
     computed: {
+        mode: {
+            get: function() {
+                this.mode_ = this.$localStorage.get("mode", this.$STRINGS.MODE_DEFAULT_KEY);
+                return this.mode_;
+            },
+            set: function(value) {
+                this.$localStorage.set("mode", value);
+                this.mode_ = value;
+            }
+        },
+        email: {
+            get: function() {
+                this.email_ = this.$localStorage.get("email", "");
+                return this.email_;
+            },
+            set: function(value) {
+                this.$localStorage.set("email", value);
+                this.email_ = value;
+            }
+        },
+        query: {
+            get: function() {
+                if (this.query_ == null) {
+                this.query_ = this.$localStorage.get(
+                    "query",
+                    this.$STRINGS.QUERY_DEFAULT
+                );
+                }
+                return this.query_;
+            },
+            set: function(value) {
+                if (__APP__ == "mmseqs" && typeof(value) === 'string' && value != '') {
+                    // Fix query to always be a valid FASTA sequence
+                    value = value.trim();
+                    if (value[0] != '>') {
+                        value = '>unnamed\n' + value;
+                    }
+                }
+                this.query_ = value;
+                this.$localStorage.set("query", this.query_);
+            }
+        },
+        database: {
+            get: function() {
+                if (this.database_ == null) {
+                    this.database_ = JSON.parse(this.$localStorage.get("database", "[]"));
+                }
+                return this.database_;
+            },
+            set: function(value) {
+                this.$localStorage.set("database", JSON.stringify(value));
+                this.database_ = value;
+            }
+        },
         databasesNotReady: function() {
             return this.databases.some((db) => db.status == "PENDING" || db.status == "RUNNING");
         },
@@ -198,43 +214,22 @@ export default {
             return (
                 this.inSearch || this.database.length == 0 || this.databases.length == 0 || this.query.length == 0
             );
+        },
+        error() {
+            return this.status.type == "error";
+        }
+    },
+    localStorage: {
+        history: {
+            type: Array,
+            default: []
         }
     },
     created() {
         this.fetchData();
     },
     watch: {
-        $route: "fetchData",
-        mode(value) {
-            if (localStorageEnabled) {
-                localStorage.mode = value;
-            }
-        },
-        email(value) {
-            if (localStorageEnabled) {
-                localStorage.email = value;
-            }
-        },
-        query(value) {
-            if (localStorageEnabled) {
-                localStorage.query = value;
-            }
-        },
-        database(value) {
-            if (localStorageEnabled) {
-                localStorage.database = JSON.stringify(value);
-            }
-        },
-        databases(value) {
-            if (localStorageEnabled) {
-                localStorage.databases = JSON.stringify(value);
-            }
-        },
-        taxFilter(value) {
-            if (localStorageEnabled) {
-                localStorage.taxFilter = JSON.stringify(value);
-            }
-        },
+        $route: "fetchData"
     },
     methods: {
         origin() {
@@ -246,89 +241,72 @@ export default {
             );
         },
         fetchData() {
-            this.$axios.get("api/databases/all").then(
+            this.$http.get("api/databases/all").then(
                 response => {
-                    const data = response.data;
-                    this.dbqueried = true;
-                    this.dberror = false;
-                    this.databases = data.databases;
+                    response.json().then(data => {
+                        this.dbqueried = true;
+                        this.dberror = false;
+                        this.databases = data.databases;
 
-                    if (this.database === null || this.database.length == 0) {
-                        this.database = this.databases.filter((element) => { return element.default == true });
-                    } else {
-                        const paths = this.databases.map((db) => { return db.path; });
-                        this.database = this.database.filter((elem) => {
-                            return paths.includes(elem);
-                        });
-                    }
-                    this.database = this.databases.filter((db) => { return db.status == "COMPLETE"; }).map(db => db.path);
-                    if (this.databases.some((db) => { return db.status == "PENDING" || db.status == "RUNNING"; })) {
-                        setTimeout(this.fetchData.bind(this), 1000);
-                    }
+                        if (this.database === null || this.database.length == 0) {
+                            this.database = this.databases.filter((element) => { return element.default == true });
+                        } else {
+                            const paths = this.databases.map((db) => { return db.path; });
+                            this.database = this.database.filter((elem) => {
+                                return paths.includes(elem);
+                            });
+                        }
+                        this.database = this.databases.filter((db) => { return db.status == "COMPLETE"; }).map(db => db.path);
+                        if (this.databases.some((db) => { return db.status == "PENDING" || db.status == "RUNNING"; })) {
+                            setTimeout(this.fetchData.bind(this), 1000);
+                        }
+                    }).catch(() => { this.dberror = true; });
                 }).catch(() => { this.dberror = true; });
         },
         search(event) {
             var data = {
                 q: this.query,
                 database: this.database,
-                mode: this.mode,
-                email: this.email
+                mode: this.mode
             };
             if (__APP__ == "foldseek" && typeof(data.q) === 'string' && data.q != '') {
                 if (data.q[data.q.length - 1] != '\n') {
                     data.q += '\n';
                 }
             }
-            if (__APP__ == "mmseqs" && typeof(value) === 'string' && data.q != '') {
-                // Fix query to always be a valid FASTA sequence
-                data.q = data.q.trim();
-                if (data.q[0] != '>') {
-                    data.q = '>unnamed\n' + data.q;
-                }
-            }
-            if (__ELECTRON__) {
-                data.email = "";
-            }
-            if (this.taxFilter) {
-                data.taxfilter = this.taxFilter.value;
+            if (!__ELECTRON__ && this.email != "") {
+                data.email = this.email;
             }
             this.inSearch = true;
-            this.$axios.post("api/ticket", convertToQueryUrl(data), {
-                transformRequest: this.$axios.defaults.transformRequest.concat(
-                    (data, headers) => {
-                        if (typeof data === 'string' && data.length > 1024) {
-                            headers['Content-Encoding'] = 'gzip';
-                            return gzip(data);
+            this.$http.post("api/ticket", data, { emulateJSON: true }).then(
+                response => {
+                    response.json().then(data => {
+                        this.status.message = this.status.type = "";
+                        this.inSearch = false;
+                        if (data.status == "PENDING" || data.status == "RUNNING") {
+                            this.addToHistory(data.id);
+                            this.$router.push({
+                                name: "queue",
+                                params: { ticket: data.id }
+                            });
+                        } else if (data.status == "COMPLETE") {
+                            this.addToHistory(data.id);
+                            this.$router.push({
+                                name: "result",
+                                params: { ticket: data.id, entry: 0 }
+                            });
                         } else {
-                            headers['Content-Encoding'] = undefined;
-                            return data;
+                            this.resultError("Error loading search result")();
                         }
-                    }
-                )
-            }).then(response => {
-                const data = response.data;
-                this.errorMessage = "";
+                }).catch(this.resultError("Error loading search result"));
+            }).catch(this.resultError("Error loading search result"));
+        },
+        resultError(message) {
+            return () => {
+                this.status.type = "error";
+                this.status.message = message;
                 this.inSearch = false;
-                if (data.status == "PENDING" || data.status == "RUNNING") {
-                    this.addToHistory(data.id);
-                    this.$router.push({
-                        name: "queue",
-                        params: { ticket: data.id }
-                    });
-                } else if (data.status == "COMPLETE") {
-                    this.addToHistory(data.id);
-                    this.$router.push({
-                        name: "result",
-                        params: { ticket: data.id, entry: 0 }
-                    });
-                } else {
-                    this.errorMessage = "Error loading search result";
-                }
-            }).catch(() => {
-                this.errorMessage = "Error loading search result";
-            }).finally(() => {
-                this.inSearch = false;
-            });
+            }
         },
         fileDrop(event) {
             event.preventDefault();
@@ -351,18 +329,13 @@ export default {
                 return;
             }
 
-            let history;
-            if (localStorageEnabled && localStorage.history) {
-                history = JSON.parse(localStorage.history);
-            } else {
-                history = [];
-            }
+            let history = this.$localStorage.get("history");
 
             let found = -1;
             for (let i in history) {
                 if (history[i].id == uuid) {
-                    found = i;
-                    break;
+                found = i;
+                break;
                 }
             }
 
@@ -375,26 +348,20 @@ export default {
                 history.unshift(tmp);
             }
 
-            if (localStorageEnabled) {
-                localStorage.history = JSON.stringify(history);
-            }
+            this.$localStorage.set("history", history);
         }
     }
 };
 </script>
 
-<style>
-
-.query-panel .actions button {
-    margin: 5px 5px 5px 0;
-}
-
-</style>
-
 <style scoped>
 .query-panel .actions {
     flex: 0;
     padding-top: 7px;
+}
+
+.query-panel .actions button {
+    margin: 5px 5px 5px 0;
 }
 
 @media screen and (min-width: 961px) {

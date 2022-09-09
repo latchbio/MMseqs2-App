@@ -10,12 +10,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -106,11 +103,6 @@ func RunJob(request JobRequest, config ConfigRoot) (err error) {
 				parameters = append(parameters, "--greedy-best-hits")
 			}
 
-			if params.Taxonomy && job.TaxFilter != "" {
-				parameters = append(parameters, "--taxon-list")
-				parameters = append(parameters, job.TaxFilter)
-			}
-
 			cmd, done, err := execCommand(config.Verbose, parameters...)
 			if err != nil {
 				return &JobExecutionError{err}
@@ -160,7 +152,7 @@ func RunJob(request JobRequest, config ConfigRoot) (err error) {
 			if !found {
 				return &JobExecutionError{errors.New("Invalid mode selected")}
 			}
-			columns := "query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qlen,tlen,qaln,taln,tca,tseq"
+			columns := "query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,qlen,tlen,qaln,taln"
 			if params.Taxonomy {
 				columns += ",taxid,taxname"
 			}
@@ -187,11 +179,6 @@ func RunJob(request JobRequest, config ConfigRoot) (err error) {
 
 			if job.Mode == "summary" {
 				parameters = append(parameters, "--greedy-best-hits")
-			}
-
-			if params.Taxonomy && job.TaxFilter != "" {
-				parameters = append(parameters, "--taxon-list")
-				parameters = append(parameters, job.TaxFilter)
 			}
 
 			cmd, done, err := execCommand(config.Verbose, parameters...)
@@ -272,6 +259,7 @@ rm -rf "${BASE}/tmp"
 			script.WriteString(`#!/bin/bash -e
 MMSEQS="$1"
 QUERY="$2"
+DBBASE="$3"
 BASE="$4"
 DB1="$5"
 DB2="$6"
@@ -298,34 +286,34 @@ FILTER_PARAM="--filter-msa ${FILTER} --filter-min-enable 1000 --diff ${DIFF} --q
 EXPAND_PARAM="--expansion-mode 0 -e ${EXPAND_EVAL} --expand-filter-clusters ${FILTER} --max-seq-id 0.95"
 mkdir -p "${BASE}"
 "${MMSEQS}" createdb "${QUERY}" "${BASE}/qdb"
-"${MMSEQS}" search "${BASE}/qdb" "${DB1}" "${BASE}/res" "${BASE}/tmp" $SEARCH_PARAM
-"${MMSEQS}" expandaln "${BASE}/qdb" "${DB1}.idx" "${BASE}/res" "${DB1}.idx" "${BASE}/res_exp" --db-load-mode 2 ${EXPAND_PARAM}
+"${MMSEQS}" search "${BASE}/qdb" "${DBBASE}/${DB1}" "${BASE}/res" "${BASE}/tmp" $SEARCH_PARAM
+"${MMSEQS}" expandaln "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp" --db-load-mode 2 ${EXPAND_PARAM}
 "${MMSEQS}" mvdb "${BASE}/tmp/latest/profile_1" "${BASE}/prof_res"
 "${MMSEQS}" lndb "${BASE}/qdb_h" "${BASE}/prof_res_h"
-"${MMSEQS}" align "${BASE}/prof_res" "${DB1}.idx" "${BASE}/res_exp" "${BASE}/res_exp_realign" --db-load-mode 2 -e ${ALIGN_EVAL} --max-accept ${MAX_ACCEPT} --alt-ali 10 -a
-"${MMSEQS}" filterresult "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign" "${BASE}/res_exp_realign_filter" --db-load-mode 2 --qid 0 --qsc $QSC --diff 0 --max-seq-id 1.0 --filter-min-enable 100
-"${MMSEQS}" result2msa "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign_filter" "${BASE}/uniref.a3m" --msa-format-mode 6 --db-load-mode 2 ${FILTER_PARAM}
+"${MMSEQS}" align "${BASE}/prof_res" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp" "${BASE}/res_exp_realign" --db-load-mode 2 -e ${ALIGN_EVAL} --max-accept ${MAX_ACCEPT} --alt-ali 10 -a
+"${MMSEQS}" filterresult "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp_realign" "${BASE}/res_exp_realign_filter" --db-load-mode 2 --qid 0 --qsc $QSC --diff 0 --max-seq-id 1.0 --filter-min-enable 100
+"${MMSEQS}" result2msa "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp_realign_filter" "${BASE}/uniref.a3m" --msa-format-mode 6 --db-load-mode 2 ${FILTER_PARAM}
 "${MMSEQS}" rmdb "${BASE}/res_exp_realign"
 "${MMSEQS}" rmdb "${BASE}/res_exp"
 "${MMSEQS}" rmdb "${BASE}/res"
-if [ "${TAXONOMY}" = "1" ] && [ -e "${DB1}_taxonomy" ]; then
-  "${MMSEQS}" convertalis "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign_filter" "${BASE}/res_exp_realign_tax" --db-output 1 --format-output "taxid,target,taxlineage" --db-load-mode 2
+if [ "${TAXONOMY}" = "1" ] && [ -e "${DBBASE}/${DB1}_taxonomy" ]; then
+  "${MMSEQS}" convertalis "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp_realign_filter" "${BASE}/res_exp_realign_tax" --db-output 1 --format-output "taxid,target,taxlineage" --db-load-mode 2
   awk 'BEGIN { printf("%c%c%c%c",8,0,0,0); exit; }' > "${BASE}/res_exp_realign_tax.dbtype"
-  MMSEQS_FORCE_MERGE=1 "${MMSEQS}" filtertaxdb "${DB1}" "${BASE}/res_exp_realign_tax" "${BASE}/res_exp_realign_tax_filt" --taxon-list '!12908&&!28384'
+  MMSEQS_FORCE_MERGE=1 "${MMSEQS}" filtertaxdb "${DBBASE}/${DB1}" "${BASE}/res_exp_realign_tax" "${BASE}/res_exp_realign_tax_filt" --taxon-list '!12908&&!28384'
   tr -d '\000' < "${BASE}/res_exp_realign_tax_filt" | sort -u > "${BASE}/uniref_tax.tsv"
 fi
 "${MMSEQS}" rmdb "${BASE}/res_exp_realign_filter"
 if [ "${USE_TEMPLATES}" = "1" ]; then
-  "${MMSEQS}" search "${BASE}/prof_res" "${DB2}" "${BASE}/res_pdb" "${BASE}/tmp" --db-load-mode 2 -s 7.5 -a -e 0.1
-  "${MMSEQS}" convertalis "${BASE}/prof_res" "${DB2}.idx" "${BASE}/res_pdb" "${BASE}/pdb70.m8" --format-output query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,cigar --db-load-mode 2
+  "${MMSEQS}" search "${BASE}/prof_res" "${DBBASE}/${DB2}" "${BASE}/res_pdb" "${BASE}/tmp" --db-load-mode 2 -s 7.5 -a -e 0.1
+  "${MMSEQS}" convertalis "${BASE}/prof_res" "${DBBASE}/${DB2}.idx" "${BASE}/res_pdb" "${BASE}/${DB2}.m8" --format-output query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,cigar --db-load-mode 2
   "${MMSEQS}" rmdb "${BASE}/res_pdb"
 fi
 if [ "${USE_ENV}" = "1" ]; then
-  "${MMSEQS}" search "${BASE}/prof_res" "${DB3}" "${BASE}/res_env" "${BASE}/tmp" $SEARCH_PARAM
-  "${MMSEQS}" expandaln "${BASE}/prof_res" "${DB3}.idx" "${BASE}/res_env" "${DB3}.idx" "${BASE}/res_env_exp" -e ${EXPAND_EVAL} --expansion-mode 0 --db-load-mode 2
-  "${MMSEQS}" align "${BASE}/tmp/latest/profile_1" "${DB3}.idx" "${BASE}/res_env_exp" "${BASE}/res_env_exp_realign" --db-load-mode 2 -e ${ALIGN_EVAL} --max-accept ${MAX_ACCEPT} --alt-ali 10 -a
-  "${MMSEQS}" filterresult "${BASE}/qdb" "${DB3}.idx" "${BASE}/res_env_exp_realign" "${BASE}/res_env_exp_realign_filter" --db-load-mode 2 --qid 0 --qsc $QSC --diff 0 --max-seq-id 1.0 --filter-min-enable 100
-  "${MMSEQS}" result2msa "${BASE}/qdb" "${DB3}.idx" "${BASE}/res_env_exp_realign_filter" "${BASE}/bfd.mgnify30.metaeuk30.smag30.a3m" --msa-format-mode 6 --db-load-mode 2 ${FILTER_PARAM}
+  "${MMSEQS}" search "${BASE}/prof_res" "${DBBASE}/${DB3}" "${BASE}/res_env" "${BASE}/tmp" $SEARCH_PARAM
+  "${MMSEQS}" expandaln "${BASE}/prof_res" "${DBBASE}/${DB3}.idx" "${BASE}/res_env" "${DBBASE}/${DB3}.idx" "${BASE}/res_env_exp" -e ${EXPAND_EVAL} --expansion-mode 0 --db-load-mode 2
+  "${MMSEQS}" align "${BASE}/tmp/latest/profile_1" "${DBBASE}/${DB3}.idx" "${BASE}/res_env_exp" "${BASE}/res_env_exp_realign" --db-load-mode 2 -e ${ALIGN_EVAL} --max-accept ${MAX_ACCEPT} --alt-ali 10 -a
+  "${MMSEQS}" filterresult "${BASE}/qdb" "${DBBASE}/${DB3}.idx" "${BASE}/res_env_exp_realign" "${BASE}/res_env_exp_realign_filter" --db-load-mode 2 --qid 0 --qsc $QSC --diff 0 --max-seq-id 1.0 --filter-min-enable 100
+  "${MMSEQS}" result2msa "${BASE}/qdb" "${DBBASE}/${DB3}.idx" "${BASE}/res_env_exp_realign_filter" "${BASE}/bfd.mgnify30.metaeuk30.smag30.a3m" --msa-format-mode 6 --db-load-mode 2 ${FILTER_PARAM}
   "${MMSEQS}" rmdb "${BASE}/res_env_exp_realign_filter"
   "${MMSEQS}" rmdb "${BASE}/res_env_exp_realign"
   "${MMSEQS}" rmdb "${BASE}/res_env_exp"
@@ -355,11 +343,12 @@ rm -rf -- "${BASE}/tmp"
 			scriptPath,
 			config.Paths.Mmseqs,
 			filepath.Join(resultBase, "job.fasta"),
-			"",
+			config.Paths.Databases,
 			resultBase,
-			config.Paths.ColabFold.Uniref,
-			config.Paths.ColabFold.Pdb,
-			config.Paths.ColabFold.Environmental,
+			"uniref30_2103_db",
+			"pdb70",
+			"colabfold_envdb_202108_db",
+			//"bfd_mgy_filter",
 			strconv.Itoa(b2i[useEnv]),
 			strconv.Itoa(b2i[useTemplates]),
 			strconv.Itoa(b2i[useFilter]),
@@ -412,14 +401,6 @@ rm -rf -- "${BASE}/tmp"
 					if err := addFile(tw, filepath.Join(resultBase, "uniref.m8")); err != nil {
 						return err
 					}
-
-					if err := addFile(tw, filepath.Join(resultBase, "pdb70.sto")); err != nil {
-						return err
-					}
-
-					if err := addFile(tw, filepath.Join(resultBase, "pdb70.m8")); err != nil {
-						return err
-					}
 				} else {
 					if err := addFile(tw, filepath.Join(resultBase, "uniref.a3m")); err != nil {
 						return err
@@ -427,12 +408,6 @@ rm -rf -- "${BASE}/tmp"
 
 					if taxonomy {
 						if err := addFile(tw, filepath.Join(resultBase, "uniref_tax.tsv")); err != nil {
-							return err
-						}
-					}
-
-					if useTemplates {
-						if err := addFile(tw, filepath.Join(resultBase, "pdb70.m8")); err != nil {
 							return err
 						}
 					}
@@ -481,27 +456,24 @@ rm -rf -- "${BASE}/tmp"
 		script.WriteString(`#!/bin/bash -e
 MMSEQS="$1"
 QUERY="$2"
+DBBASE="$3"
 BASE="$4"
 DB1="$5"
 SEARCH_PARAM="--num-iterations 3 --db-load-mode 2 -a --k-score 'seq:96,prof:80' -e 0.1 --max-seqs 10000"
 EXPAND_PARAM="--expansion-mode 0 -e inf --expand-filter-clusters 0 --max-seq-id 0.95"
 export MMSEQS_CALL_DEPTH=1
 "${MMSEQS}" createdb "${QUERY}" "${BASE}/qdb" --shuffle 0
-"${MMSEQS}" search "${BASE}/qdb" "${DB1}" "${BASE}/res" "${BASE}/tmp" $SEARCH_PARAM
-"${MMSEQS}" expandaln "${BASE}/qdb" "${DB1}.idx" "${BASE}/res" "${DB1}.idx" "${BASE}/res_exp" --db-load-mode 2 ${EXPAND_PARAM}
-"${MMSEQS}" align   "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp" "${BASE}/res_exp_realign" --db-load-mode 2 -e 0.001 --max-accept 1000000 -c 0.5 --cov-mode 1
-"${MMSEQS}" pairaln "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign" "${BASE}/res_exp_realign_pair" --db-load-mode 2
-"${MMSEQS}" align   "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign_pair" "${BASE}/res_exp_realign_pair_bt" --db-load-mode 2 -e inf -a
-"${MMSEQS}" pairaln "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_exp_realign_pair_bt" "${BASE}/res_final" --db-load-mode 2
-"${MMSEQS}" result2msa "${BASE}/qdb" "${DB1}.idx" "${BASE}/res_final" "${BASE}/pair.a3m" --db-load-mode 2 --msa-format-mode 5
+"${MMSEQS}" search "${BASE}/qdb" "${DBBASE}/${DB1}" "${BASE}/res" "${BASE}/tmp" $SEARCH_PARAM
+"${MMSEQS}" expandaln "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp" --db-load-mode 2 ${EXPAND_PARAM}
+"${MMSEQS}" align   "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp" "${BASE}/res_exp_realign" --db-load-mode 2 -e 0.001 --max-accept 1000000 -c 0.5 --cov-mode 1
+"${MMSEQS}" pairaln "${BASE}/qdb" "${DBBASE}/${DB1}" "${BASE}/res_exp_realign" "${BASE}/res_exp_realign_pair" --db-load-mode 2
+"${MMSEQS}" result2msa "${BASE}/qdb" "${DBBASE}/${DB1}.idx" "${BASE}/res_exp_realign_pair" "${BASE}/pair.a3m" --db-load-mode 2 --msa-format-mode 5
 "${MMSEQS}" rmdb "${BASE}/qdb"
 "${MMSEQS}" rmdb "${BASE}/qdb_h"
 "${MMSEQS}" rmdb "${BASE}/res"
 "${MMSEQS}" rmdb "${BASE}/res_exp"
 "${MMSEQS}" rmdb "${BASE}/res_exp_realign"
 "${MMSEQS}" rmdb "${BASE}/res_exp_realign_pair"
-"${MMSEQS}" rmdb "${BASE}/res_exp_realign_pair_bt"
-"${MMSEQS}" rmdb "${BASE}/res_final"
 rm -rf -- "${BASE}/tmp"
 `)
 		err = script.Close()
@@ -516,7 +488,7 @@ rm -rf -- "${BASE}/tmp"
 			filepath.Join(resultBase, "job.fasta"),
 			config.Paths.Databases,
 			resultBase,
-			config.Paths.ColabFold.Uniref,
+			"uniref30_2103_db",
 		}
 
 		cmd, done, err := execCommand(config.Verbose, parameters...)
@@ -624,22 +596,7 @@ func worker(jobsystem JobSystem, config ConfigRoot) {
 		log.Println("Using " + config.Mail.Mailer.Type + " mail transport")
 		mailer = config.Mail.Mailer.GetTransport()
 	}
-
-	var shouldExit int32 = 0
-	if config.Worker.GracefulExit {
-		go func() {
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-			defer signal.Stop(sig)
-			<-sig
-			atomic.StoreInt32(&shouldExit, 1)
-		}()
-	}
-
 	for {
-		if config.Worker.GracefulExit && atomic.LoadInt32(&shouldExit) == 1 {
-			return
-		}
 		ticket, err := jobsystem.Dequeue()
 		if err != nil {
 			if ticket != nil {
